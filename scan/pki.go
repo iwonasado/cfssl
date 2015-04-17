@@ -5,6 +5,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"net"
 	"strings"
 	"time"
 
@@ -38,7 +39,7 @@ var PKI = &Family{
 type expiration time.Time
 
 func (e expiration) String() string {
-	return e.(time.Time).UTC().Format("Jan 2 15:04:05 2006 MST")
+	return time.Time(e).Format("Jan 2 15:04:05 2006 MST")
 }
 
 func certExpiration(host string) (grade Grade, output Output, err error) {
@@ -48,14 +49,18 @@ func certExpiration(host string) (grade Grade, output Output, err error) {
 	}
 	conn.Close()
 
-	expirationTime = helpers.ExpiryTime(conn.ConnectionState().PeerCertificates)
+	e := helpers.ExpiryTime(conn.ConnectionState().PeerCertificates)
+	if e == nil {
+		return
+	}
+	expirationTime := *e
 	output = expirationTime
 
 	if time.Now().After(expirationTime) {
 		return
 	}
 
-	if time.Now().Add(time.Month).After(expirationTime) {
+	if time.Now().Add(time.Hour * 24 * 30).After(expirationTime) {
 		grade = Warning
 		return
 	}
@@ -77,10 +82,11 @@ func chainValidation(host string) (grade Grade, output Output, err error) {
 	}
 	conn.Close()
 
-	var names []string
 	certs := conn.ConnectionState().PeerCertificates
-	err = certs[0].VerifyHostname(host)
-	if err != nil {
+	hostname, _, _ := net.SplitHostPort(host)
+
+	if certs[0].VerifyHostname(hostname) != nil {
+		err = fmt.Errorf("Couldn't verify hostname %s", hostname)
 		return
 	}
 
@@ -93,13 +99,15 @@ func chainValidation(host string) (grade Grade, output Output, err error) {
 		}
 
 		if !bytes.Equal(cert.AuthorityKeyId, parent.SubjectKeyId) {
-			return fmt.Errorf("AuthorityKeyId differs from parent SubjectKeyId")
+			err = fmt.Errorf("AuthorityKeyId differs from parent SubjectKeyId")
+			return
 		}
 
 		if err = cert.CheckSignatureFrom(parent); err != nil {
 			return
 		}
 	}
+	grade = Good
 	return
 }
 
@@ -121,19 +129,22 @@ func chainSHA1(host string) (grade Grade, output Output, err error) {
 		return
 	}
 
-	var errs []error
+	var errs []string
 
 	for i := 0; i < len(certs)-1; i++ {
 		cert := certs[i]
+		parent := certs[i+1]
+
 		switch cert.SignatureAlgorithm {
 		case x509.ECDSAWithSHA1:
-			errs = append(errs, fmt.Errorf("%s is signed by ECDSAWithSHA1", cert.Subject.CommonName))
+			errs = append(errs, fmt.Sprintf("%s is signed by ECDSAWithSHA1", cert.Subject.CommonName))
 		case x509.SHA1WithRSA:
-			errs = append(errs, fmt.Errorf("%s is signed by ECDSAWithSHA1", cert.Subject.CommonName))
+			errs = append(errs, fmt.Sprintf("%s is signed by ECDSAWithSHA1", cert.Subject.CommonName))
 		}
 
 		if !bytes.Equal(cert.AuthorityKeyId, parent.SubjectKeyId) {
-			return fmt.Errorf("AuthorityKeyId differs from parent SubjectKeyId")
+			err = fmt.Errorf("AuthorityKeyId differs from parent SubjectKeyId")
+			return
 		}
 
 		if err = cert.CheckSignatureFrom(parent); err != nil {
@@ -143,7 +154,7 @@ func chainSHA1(host string) (grade Grade, output Output, err error) {
 	if len(errs) == 0 {
 		grade = Good
 	} else {
-		output = errs
+		output = outputString(strings.Join(errs, "\n"))
 	}
 	return
 }

@@ -5,26 +5,20 @@ import (
 	"testing"
 )
 
-type OutputString string
-
-func (os OutputString) String() string {
-	return string(os)
-}
-
 var TestingScanner = &Scanner{
 	Description: "Tests common scan functions",
 	scan: func(host string) (Grade, Output, error) {
 		switch host {
 		case "bad.example.com:443":
-			return Bad, OutputString("bad.com"), nil
+			return Bad, outputString("bad.com"), nil
 		case "Warning.example.com:443":
-			return Warning, OutputString("Warning.com"), nil
+			return Warning, outputString("Warning.com"), nil
 		case "good.example.com:443":
-			return Good, OutputString("good.com"), nil
+			return Good, outputString("good.com"), nil
 		case "skipped.example.com:443/0":
-			return Skipped, OutputString("skipped"), nil
+			return Skipped, outputString("skipped"), nil
 		default:
-			return Grade(-1), OutputString("invalid"), fmt.Errorf("scan: invalid grade")
+			return Grade(-1), outputString("invalid"), fmt.Errorf("scan: invalid grade")
 		}
 	},
 }

@@ -52,6 +52,13 @@ type Output interface {
 	fmt.Stringer
 }
 
+// ouputString is a trivial Output implementation.
+type outputString string
+
+func (os outputString) String() string {
+	return string(os)
+}
+
 // Scanner describes a type of scan to perform on a host.
 type Scanner struct {
 	// Description describes the nature of the scan to be performed.
@@ -87,6 +94,7 @@ var Default = FamilySet{
 	"TLSHandshake": TLSHandshake,
 	"TLSSession":   TLSSession,
 	"PKI":          PKI,
+	"Broad":        Broad,
 }
 
 // ScannerResult contains the result for a single scan.

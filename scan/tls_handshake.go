@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"time"
 
 	"github.com/cloudflare/cf-tls/tls"
 )
@@ -17,6 +18,10 @@ var TLSHandshake = &Family{
 		"CipherSuite": {
 			"Determines host's cipher suites accepted and prefered order",
 			cipherSuiteScan,
+		},
+		"HandshakeSpeed": {
+			"Determines how quickly host is able to to perform handshakes.",
+			handshakeSpeedScan,
 		},
 	},
 }
@@ -129,5 +134,50 @@ func cipherSuiteScan(host string) (grade Grade, output Output, err error) {
 		err = errors.New("couldn't negotiate any cipher suites")
 	}
 	output = cvList
+	return
+}
+
+type timerOutput struct {
+	NumTrials     int
+	TotalDuration time.Duration
+}
+
+func (o timerOutput) mean() time.Duration {
+	if o.NumTrials == 0 {
+		return 0
+	}
+	return time.Duration(int(o.TotalDuration) / o.NumTrials)
+}
+
+func (o timerOutput) String() string {
+	return fmt.Sprintf("%d trials in %v total (%v mean)", o.NumTrials, o.TotalDuration, o.mean())
+}
+
+// handshakeSpeedScan performs a number of
+func handshakeSpeedScan(host string) (grade Grade, output Output, err error) {
+	var o timerOutput
+	output = o
+	config := defaultTLSConfig(host)
+
+	for expiration := time.Now().Add(5 * time.Second); time.Now().Before(expiration); {
+		start := time.Now()
+
+		var conn *tls.Conn
+		conn, err := tls.DialWithDialer(&net.Dialer{Timeout: time.Second}, Network, host, config)
+		if err != nil {
+			continue
+		}
+		conn.Close()
+
+		o.TotalDuration += time.Since(start)
+		o.NumTrials++
+	}
+
+	if o.mean() < 300*time.Millisecond {
+		grade = Good
+	} else {
+		grade = Warning
+	}
+	fmt.Println(o)
 	return
 }
